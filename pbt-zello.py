@@ -20,11 +20,16 @@ def main():
     config.read('pbt-zello.ini')
     
     connection = create_zello_connection(config)
-    print(connection)
-    stream = start_stream(connection)
     
     enc = opuslib.api.encoder.create_state(16000,1,opuslib.APPLICATION_AUDIO)
     
+    while True:
+        stream = start_stream(connection)
+        send_wav(stream, connection, enc)
+        stop_stream(connection, stream)
+        time.sleep(30)
+    
+def send_wav(stream_id, ws, opus_enc):
     f = wave.open("pdcent_20200708-142547.wav",'rb')
     numFrames = f.getnframes()
     rate = f.getframerate()
@@ -34,13 +39,10 @@ def main():
     
     w=f.readframes(chunk)
     while len(w) >= chunk:
-        out = opuslib.api.encoder.encode(enc, w, chunk, len(w)*2)
-        send_data = bytearray(pack('!BII',1,stream,0)) + out
-        connection.send_binary(send_data)
+        out = opuslib.api.encoder.encode(opus_enc, w, chunk, len(w)*2)
+        send_data = bytearray(pack('!BII',1,stream_id,0)) + out
+        ws.send_binary(send_data)
         w=f.readframes(chunk)
-
-
-    stop_stream(connection, stream)
     
     
 def create_zello_jwt(key, issuer):
@@ -64,7 +66,7 @@ def create_zello_connection(config):
     print(encoded_jwt)
 
     ws = websocket.create_connection(config['DEFAULT']['zello_url'])
-    ws.settimeout(1)
+    ws.settimeout(10)
     send = {'command':'logon',}
     send['seq'] = seq
     send['auth_token'] = encoded_jwt.decode('utf-8')
@@ -85,6 +87,7 @@ def make_codec_hdr(rate, frames, size):
     
 def start_stream(ws):
     global seq
+    print("Start Stream")
     send = {'command':'start_stream', 'type':'audio', 'codec':'opus'}
     send['seq'] = seq
     seq = seq + 1
@@ -110,9 +113,14 @@ def start_stream(ws):
     return stream_id
 
 def stop_stream(ws,stream_id):
+    print("Stop Stream")
     send = {'command':'stop_stream',}
     send['stream_id'] = stream_id
     ws.send(json.dumps(send))
+    result = ws.recv()
+    data = json.loads(result)
+    print(data)
+
 
 if __name__ == '__main__':
     main()
